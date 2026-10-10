@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Overlay Lirik Live</title>
+<style>
+:root{--text:#fff;--accent:#b8ffcf;--shadow:0 2px 8px #000,0 0 16px #0009}
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;background:transparent!important;overflow:hidden}
+body{font-family:Arial,Helvetica,sans-serif;color:var(--text)}
+#wrap{width:100%;height:100%;display:flex;align-items:center;justify-content:center;text-align:center;padding:8px}
+#box{width:100%;padding:10px 12px;background:rgba(0,0,0,.22);border-radius:12px}
+#current{font-size:clamp(20px,4.4vw,38px);font-weight:800;line-height:1.2;text-shadow:var(--shadow);color:var(--accent);overflow-wrap:anywhere}
+#next{font-size:clamp(15px,3.2vw,27px);font-weight:600;line-height:1.25;margin-top:8px;color:#fff;text-shadow:var(--shadow);opacity:.94;overflow-wrap:anywhere}
+#meta{font-size:12px;letter-spacing:.5px;margin-top:9px;color:#fff;text-shadow:var(--shadow);opacity:.85}
+#err{font-size:15px;color:#fff;text-shadow:var(--shadow)}
+</style></head>
+<body><div id="wrap"><div id="box"><div id="current">Lirik akan tampil di sini</div><div id="next">Baris berikutnya</div><div id="meta"></div><div id="err"></div></div></div>
+<script>
+const q=new URLSearchParams(location.search);
+const title=q.get('title')||q.get('track')||'';
+const artist=q.get('artist')||'';
+const startParam=Number(q.get('start')||0);
+const $=id=>document.getElementById(id);
+let timed=[], plain=[], timer=null, pageStart=Date.now();
+function showError(s){$('err').textContent=s}
+function cleanLine(s){return s.replace(/^\[\d{2}:\d{2}(?:\.\d{1,3})?\]/,'').trim()}
+function parseLRC(s){
+ const out=[];
+ for(const line of s.split(/\r?\n/)){
+  const re=/\[(\d{2}):(\d{2})(?:\.(\d{1,3}))?\]/g; let m, found=false;
+  while((m=re.exec(line))!==null){found=true;let frac=(m[3]||'0');let sec=Number(m[1])*60+Number(m[2])+Number(('0.'+frac));out.push({t:sec,text:line.replace(/\[[^\]]+\]/g,'').trim()})}
+  if(!found && line.trim()) plain.push(line.trim());
+ }
+ return out.sort((a,b)=>a.t-b.t);
+}
+function draw(){
+ if(!timed.length)return;
+ let elapsed=(Date.now()-pageStart)/1000+startParam;
+ let idx=-1;for(let i=0;i<timed.length;i++){if(timed[i].t<=elapsed)idx=i;else break}
+ if(idx<0){$('current').textContent='♫';$('next').textContent=timed[0]?.text||''}
+ else{$('current').textContent=timed[idx].text||'♫';$('next').textContent=timed[idx+1]?.text||''}
+}
+async function load(){
+ if(!title){$('current').textContent='Tambahkan judul lagu pada URL';$('next').textContent='?title=Judul&artist=Penyanyi';return}
+ $('meta').textContent=title+(artist?' • '+artist:'');
+ try{
+  const url='https://lrclib.net/api/search?'+new URLSearchParams({track_name:title,artist_name:artist});
+  const res=await fetch(url);
+  if(!res.ok)throw new Error('API '+res.status);
+  const items=await res.json();
+  if(!items.length)throw new Error('Lirik tidak ditemukan');
+  const item=items.find(x=>x.syncedLyrics)||items.find(x=>x.plainLyrics);
+  if(!item)throw new Error('Lirik belum tersedia');
+  if(item.syncedLyrics){timed=parseLRC(item.syncedLyrics);if(!timed.length)throw new Error('Timestamp lirik tidak terbaca');}
+  else{plain=(item.plainLyrics||'').split(/\r?\n/).filter(Boolean);$('current').textContent=plain[0]||'Lirik tersedia';$('next').textContent=plain[1]||'';showError('Lirik ini tidak memiliki timestamp, jadi tidak dapat berganti tepat mengikuti lagu.');return}
+  pageStart=Date.now();draw();timer=setInterval(draw,150);
+ }catch(e){showError(e.message==='Failed to fetch'?'Tidak dapat mengakses layanan lirik. Periksa koneksi internet.':e.message)}
+}
+load();
+</script></body></html>
